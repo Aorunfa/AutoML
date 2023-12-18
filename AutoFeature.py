@@ -11,7 +11,7 @@ import pandas as pd
 import logging
 from sklearn import metrics
 from sklearn.model_selection import StratifiedKFold
-from sklearn.linear_model import Lasso
+from sklearn.linear_model import Lasso, LogisticRegression
 from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
 from xgboost import XGBClassifier, XGBRegressor
 from lightgbm import LGBMClassifier, LGBMRegressor
@@ -58,155 +58,28 @@ class Logger(object):
     def __call__(self, log_info: str):
         self.logger.info(log_info)
 
-
 """
-自动筛选重要特征算法
-方案设计：
-过滤：过滤与标签相关性不大的特征 过滤自相关性强的特征
-嵌套：全部传入特征组筛选有一定解释能力的特征
-包裹：确定最优特征数量进行特征筛选
-
 TODO 超参字典自定义，确定关键参数范围即可
 TODO 固定相关随机种子
-TODO 将评估指标+模型初始化的部分单独分割定义一个类
 """
 class SetupBase(object):
     """
-    初始化设置模型、评价指标两个模块
+    初始化设置模型、评价指标、超参数搜索器
     """
     def __init__(self):
-        # 继承相应属性
-        pass
-    def set_models(self):
-        pass
-    def set_metric(self):
-        pass
+        self.fit_type = 'regression'
+        self.parms_search = 'grid'
+        self.fit_metric = None
 
-class AutoFeature(object):
-    """
-    自动筛选特征算法，输出最终k个最重要的特征 -- 非全局最优优组合
-    """
-    # 定义各个模型超参搜索的字典
-    random_seed = 2023 # TODO设置随机种子
-    cart_params = {'max_depth': [x for x in range(2, 15, 2)]} # TODO 增加新的参数空间
-    xgb_params = {'max_depth': [x for x in range(2, 11, 2)],
-                  'n_estimators': [25, 50, 75, 100],
-                  'learning_rate': [5e-1, 1e-1, 5e-2],
-                  'importance_type': ['gain']}
-    lgb_params = {'objective': ['regression'],
-                  'max_depth': [x for x in range(2, 11, 2)],
-                  'n_estimators': [30, 60, 100],
-                  'learning_rate': [5e-1, 1e-1, 5e-2],
-                  'verbosity': [-1],                    # 隐藏警告信息
-                  'importance_type': ['gain']}
-    cab_params = {'max_depth': [x for x in range(2, 11, 2)],
-                  'iterations': [25, 50, 75, 100],
-                  'learning_rate': [5e-1, 1e-1, 5e-2],
-                  'verbose': [False]}
-    lasso_params = {'alpha': list([0.1 * x for x in range(1, 21)])}
-    search_params = {'lasso': lasso_params,
-                     'cart': cart_params,
-                     'xgb': xgb_params,
-                     'lgb': lgb_params,
-                     'cab': cab_params
-                     }
-
-    # 定义评估指标字典
-    @staticmethod
-    def rec_pre(y_true, y_pred):
-        rec = metrics.recall_score(y_true, y_pred)
-        pre = metrics.precision_score(y_true, y_pred)
-        return (rec + pre) / 2
-    reg = {'r2': metrics.r2_score,
-           'mape': metrics.mean_absolute_percentage_error,
-           'mse': metrics.mean_squared_error}
-    clf = {'auc': metrics.accuracy_score,
-           'recall': metrics.recall_score,
-           'precision': metrics.precision_score,
-           'rec_pre': rec_pre,
-           'f1': metrics.f1_score,
-           'roc_auc': metrics.roc_auc_score}
-    metrics_fun_dict = {'regression': reg, 'classification': clf}
-
-    def __init__(self, fit_type='regression', fit_metric=None):
-        # 日志模块
-        self.log = Logger(path=r'auto_log.log')
-        self.log('--'*10 + '特征自动筛选日志' + '--'*10)
-
-        # 指定一些关键参数
-        self.corrval_withlabel = 0.35
-        self.corrval_withothers = 0.85
-        self.fit_type = fit_type
-        self.fit_metric = fit_metric
-
-        self.k_split = 4
-        self.top_n = 50
-        self.group_n = -1  # 嵌套式最优特征数量
-        self.p_val = 0.05
-
-        # 超参寻优方式
-        self.parms_search = 'grid'  # random bayes
-
-    def _metric_fun(self, y_true, y_pred):
-        """
-        进行指标评价
-        :param y_pred:
-        :param y_true:
-        :return:
-        """
-        if self.fit_type == 'regression':
-            if self.fit_metric is None:
-                self.fit_metric = 'r2'  # 回归问题默认评价指标为r2
-        else:
-            if self.fit_metric is None:
-                self.fit_metric = 'auc'  # 分类问题默认是准确率
-        val = self.metrics_fun_dict[self.fit_type][self.fit_metric](y_true, y_pred)
-        return val
-
-    def _k_split(self, df, labelname, k=4):
-        """
-        将数据集分层拆分为k折
-        :param df:数据集
-        :param labelname:标签名称
-        :return: 拆分后的标签
-        """
-        if self.fit_type == 'regression':
-            boxes = 50
-            df.loc[:, 'box'] = pd.qcut(df[labelname], q=boxes,
-                                       duplicates='drop', labels=False)
-        else:
-            df.loc[:, 'box'] = df[labelname]
-        skfold = StratifiedKFold(n_splits=k,
-                                 shuffle=True,
-                                 random_state=2023)
-        skfold_split = skfold.split(df.index,
-                                    df.box)
-        return skfold_split
-
-    def _standardize_features(self, X, mode='train', mean=0, std_dev=1):
-        """
-        特征标准化
-        :param X:
-        :param mode:
-        :param mean:
-        :param std:
-        :return:
-        """
-        if mode == 'train':
-            mean = np.mean(X, axis=0)
-            std_dev = np.std(X, axis=0)
-            return (X - mean) / std_dev, mean, std_dev
-        else:
-            return (X - mean) / std_dev
-
-    def _init_models(self):
+    def _set_models(self):
         """
         初始化模型
         :return:分类问题与回归问题的模型字典
         """
         reg_keys = ['lasso', 'cart', 'xgb', 'lgb', 'cab']
-        clf_keys = reg_keys[1:]
+        clf_keys = ['logit'] + reg_keys[1:]
         lasso = Lasso
+        logit = LogisticRegression
         cart_reg = DecisionTreeRegressor
         cart_clf = DecisionTreeClassifier
         xgb_clf = XGBClassifier
@@ -219,15 +92,83 @@ class AutoFeature(object):
         reg_model = dict(zip(reg_keys,
                              [lasso, cart_reg, xgb_reg, lgb_reg, cab_reg]))
         clf_model = dict(zip(clf_keys,
-                             [cart_clf, xgb_clf, lgb_clf, cab_clf]))
+                             [logit, cart_clf, xgb_clf, lgb_clf, cab_clf]))
         if self.fit_type == 'regression':
-            self.models_scran = reg_model
+            self.search_models = reg_model
         elif self.fit_type == 'classification':
-            self.models_scran = clf_model
+            self.search_models = clf_model
         else:
-            raise ValueError(f'错误的值{self.fit_type}, fit_type取regression或classification')
+            raise ValueError(f'错误的值{self.fit_type}, fit_type取值为regression或classification')
 
-    def _find_best_parms(self, model, param_dist: dict, scoring_fun, cv=None):
+    def _set_params(self):
+        """
+        初始化各个模型超参空间字典
+        """
+        random_seed = 2023  # TODO设置随机种子
+        cart_params = {'max_depth': [x for x in range(2, 15, 2)]}  # TODO 增加新的参数空间
+        xgb_params = {'max_depth': [x for x in range(2, 11, 2)],
+                      'n_estimators': [25, 50, 75, 100],
+                      'learning_rate': [5e-1, 1e-1, 5e-2],
+                      'importance_type': ['gain']}
+        lgb_params = {'objective': ['regression'],
+                      'max_depth': [x for x in range(2, 11, 2)],
+                      'n_estimators': [30, 60, 100],
+                      'learning_rate': [5e-1, 1e-1, 5e-2],
+                      'verbosity': [-1],  # 隐藏警告信息
+                      'importance_type': ['gain']}
+        cab_params = {'max_depth': [x for x in range(2, 11, 2)],
+                      'iterations': [25, 50, 75, 100],
+                      'learning_rate': [5e-1, 1e-1, 5e-2],
+                      'verbose': [False]}
+        lasso_params = {'alpha': list([0.1 * x for x in range(1, 21)])}
+        logit_params = {'penalty': ['l1'],
+                        'solver': ['saga'],
+                        'C': list([0.1 * x for x in range(1, 101, 5)])}
+        self.search_params = {'lasso': lasso_params,
+                              'logit': logit_params,
+                              'cart': cart_params,
+                              'xgb': xgb_params,
+                              'lgb': lgb_params,
+                              'cab': cab_params
+                              }
+
+    @staticmethod
+    def metric_rec_pre(y_true, y_pred):
+        rec = metrics.recall_score(y_true, y_pred)
+        pre = metrics.precision_score(y_true, y_pred)
+        return (rec + pre) / 2
+
+    def _set_metrics(self):
+        # 定义评估指标字典
+        reg = {'r2': metrics.r2_score,
+               'mape': metrics.mean_absolute_percentage_error,
+               'mse': metrics.mean_squared_error}
+        clf = {'auc': metrics.accuracy_score,
+               'recall': metrics.recall_score,
+               'precision': metrics.precision_score,
+               'rec_pre': self.metric_rec_pre,
+               'f1': metrics.f1_score,
+               'roc_auc': metrics.roc_auc_score}
+        self.search_metrics = {'regression': reg, 'classification': clf}
+
+    def _metric_fun(self, y_true, y_pred):
+        """
+        进行指标评价
+        :param y_pred:
+        :param y_true:
+        :return:
+        """
+        self._set_metrics()
+        if self.fit_type == 'regression':
+            if self.fit_metric is None:
+                self.fit_metric = 'r2'  # 回归问题默认评价指标为r2
+        else:
+            if self.fit_metric is None:
+                self.fit_metric = 'auc'  # 分类问题默认是准确率
+        val = self.search_metrics[self.fit_type][self.fit_metric](y_true, y_pred)
+        return val
+
+    def _set_seacher(self, model, param_dist: dict, scoring_fun, cv=None):
         """
         自定义超参寻优方法
         :param model: 模型
@@ -254,6 +195,73 @@ class AutoFeature(object):
                                      search_spaces=param_dist, n_jobs=-1, cv=cv,
                                      scoring=scoring_fun)
         return searcher
+
+
+class AutoFeature(SetupBase):
+    """
+    自动筛选特征算法，输出最终k个最重要的特征 -- 非全局最优优组合
+    """
+    def __init__(self, corrval_withlabel=0.35, corrval_withothers=0.85, p_val=0.05,
+                 fit_type='regression', fit_metric=None, k_cv=4, top_n=50,
+                 group_n=-1, params_searcher='grid', log_path='auto_events.log'):
+        super(AutoFeature, self).__init__()
+        # 日志模块
+        self.log = Logger(path=log_path)
+        self.log('--'*10 + '特征自动筛选日志' + '--'*10)
+        self.fit_type = fit_type                        # 问题是回归还是分类问题
+        # 过滤式方法参数
+        self.corrval_withlabel = corrval_withlabel      # 与标签最低的相关性系数
+        self.corrval_withothers = corrval_withothers    # 特征间最大的相关系数
+        self.p_val = p_val                              # 独立性检验p值
+        # 嵌套式方法参数
+        self.fit_metric = fit_metric                    # 模型多折验证评价指标
+        self.k_cv = k_cv                                # 进行几折交叉验证
+        self.top_n = top_n                              # 保留重要性topN的特征组
+        # 包裹式方法参数
+        self.group_n = group_n                          # 包裹式筛选的最大特征数量
+        # 超参搜索器
+        self.params_searcher = params_searcher          # random or bayes
+
+        if self.fit_type not in ['regression', 'classification']:
+            raise ValueError(f'错误的值{self.fit_type}, fit_type取值为regression或classification')
+        if self.params_searcher not in ['grid', 'random', 'bayes']:
+            raise ValueError(f"错误的值{self.params_searcher}, params_searcher取值为['grid', 'random', 'bayes']")
+
+    def _k_split(self, df, labelname):
+        """
+        将数据集按照标签分布拆分为k折
+        :param df:数据集
+        :param labelname:标签名称
+        :return: 拆分后的标签
+        """
+        if self.fit_type == 'regression':
+            boxes = 50
+            df.loc[:, 'box'] = pd.qcut(df[labelname], q=boxes,
+                                       duplicates='drop', labels=False)
+        else:
+            df.loc[:, 'box'] = df[labelname]
+        skfold = StratifiedKFold(n_splits=self.k_cv,
+                                 shuffle=True,
+                                 random_state=2023)
+        skfold_split = skfold.split(df.index,
+                                    df.box)
+        return skfold_split
+
+    def _standardize_features(self, X, mode='train', mean=0, std_dev=1):
+        """
+        特征标准化
+        :param X:
+        :param mode:
+        :param mean:
+        :param std:
+        :return:
+        """
+        if mode == 'train':
+            mean = np.mean(X, axis=0)
+            std_dev = np.std(X, axis=0)
+            return (X - mean) / std_dev, mean, std_dev
+        else:
+            return (X - mean) / std_dev
 
     def _indpendent_test(self, dist_feature, dist_target: pd.Series,
                          box_trans=False, method='ch2'):
@@ -392,14 +400,15 @@ class AutoFeature(object):
         self.log(f'剩余分类特征: {col_filter2}')
         return df[col_filter + col_filter2 + [label_name]], col_filter, col_filter2
 
-    def filtering(self, df, feature_num, feature_clf, label_name):
+    def filtering(self, df:pd.DataFrame,
+                  feature_num:list, feature_clf:list, label_name:str):
         """
         以指标过滤式进行特征筛选
-        :param df:
-        :param feature_num:
-        :param feature_clf:
-        :param label_name:
-        :return:
+        :param df:数据集
+        :param feature_num:数值特征列
+        :param feature_clf:分类特征列
+        :param label_name:标签列名
+        :return:过滤后的数据集，数值特征列，分类特征列
         """
         self.log('--'*5 + f'进行过滤式操作, 操作类型{self.fit_type}' + '--'*5)
         if self.fit_type == 'regression':
@@ -416,19 +425,20 @@ class AutoFeature(object):
         :return:
         """
         self.log('--' * 5 + f'进行嵌套式过滤' + '--' * 5)
-        self._init_models()
+        self._set_models()
+        self._set_params()
         score_fun = metrics.make_scorer(self._metric_fun)  # make_score封装
         # 初始化
-        feture_importance = np.zeros((len(self.models_scran), len(feture_ls)))
-        weights = np.zeros(len(self.models_scran))
+        feture_importance = np.zeros((len(self.search_models), len(feture_ls)))
+        weights = np.zeros(len(self.search_models))
         X_search, _, _ = self._standardize_features(df[feture_ls])
-        for i, (k, model) in enumerate(self.models_scran.items()):
-            mat_importance = np.zeros((self.k_split, len(feture_ls)))
+        for i, (k, model) in enumerate(self.search_models.items()):
+            mat_importance = np.zeros((self.k_cv, len(feture_ls)))
             ls_metrics = []
             # 确定最优参数
-            seacher = self._find_best_parms(model(), self.search_params[k],
-                                            scoring_fun=score_fun,
-                                            cv=self._k_split(df, label_name))
+            seacher = self._set_seacher(model(), self.search_params[k],
+                                        scoring_fun=score_fun,
+                                        cv=self._k_split(df, label_name))
             seacher.fit(X_search, df[label_name])
             best_params = seacher.best_params_
             model = model(**best_params)
@@ -446,7 +456,7 @@ class AutoFeature(object):
                     feature_importance = np.abs(model.feature_importances_)
                 except:
                     feature_importance = np.abs(model.coef_)
-                feature_importance = feature_importance / sum(feature_importance)  # 归一化
+                feature_importance = feature_importance / np.sum(feature_importance)  # 归一化
                 val_metrics = self._metric_fun(y_valid, model.predict(X_valid))
                 # 记录中间数据
                 mat_importance[j] = feature_importance
@@ -461,10 +471,10 @@ class AutoFeature(object):
         feture_importance = tuple(zip(feture_ls, np.sum(feture_importance * weights_, axis=0)))
         feture_importance = sorted(feture_importance, key=lambda x: x[1])[::-1]
         self.log(f'最终特征评分结果{dict(feture_importance)}')
-        self.log(f'评估模型指标排序：{sorted(tuple(zip(self.models_scran.keys(), weights)), key=lambda x:x[1])[::-1]}')
+        self.log(f'评估模型指标排序：{sorted(tuple(zip(self.search_models.keys(), weights)), key=lambda x:x[1])[::-1]}')
         return dict(feture_importance[:self.top_n])  # 取top_n的重要特征组
 
-    def wrapping(self, df, feature_ls: list, label_name: str, base_model='cart'):
+    def wrapping(self, df, feature_ls: list, label_name: str, base_model='cart', group_n=-1):
         """
         包裹式特征筛选
         :param df:
@@ -474,13 +484,16 @@ class AutoFeature(object):
         :return:
         """
         self.log('--' * 5 + f'进行包裹式过滤, 基模型{base_model}' + '--' * 5)
-        self._init_models()
+        self._set_models()
+        self._set_params()
         score_fun = metrics.make_scorer(self._metric_fun)  # make_score封装
-        model = self.models_scran[base_model]
-        if self.group_n == -1:
+        if group_n == -1:
             self.group_n = len(feature_ls)
+        else:
+            self.group_n = group_n
+        model = self.search_models[base_model]
         """
-        逐步增加特征数量，确定每一次加入的最优特征
+        逐步加入特征，确定每一次加入的最优特征
         """
         n = 1
         feature_opt_ls = []
@@ -491,9 +504,9 @@ class AutoFeature(object):
             for f in feature_ls:
                 feature_slect = feature_opt_ls + [f]
                 # 获取最优参数对应评估指标
-                seacher = self._find_best_parms(model(), self.search_params[base_model],
-                                                scoring_fun=score_fun,
-                                                cv=self._k_split(df, label_name))
+                seacher = self._set_seacher(model(), self.search_params[base_model],
+                                            scoring_fun=score_fun,
+                                            cv=self._k_split(df, label_name))
                 seacher.fit(X_train[feature_slect], df[label_name])
                 select_dict[f] = seacher.best_score_  # 记录增加该特征的评价指标
 
@@ -503,7 +516,8 @@ class AutoFeature(object):
             feature_ls.remove(f_opt[0])
             n += 1
             self.log(f'增加第{n-1}个特征: {f_opt[0]}, 评价指标数值{f_opt[1]}')
-        # 在最大数量特征内筛选最优特征组合
+
+        # 在group_n内筛选最优特征组合
         feature_opt_ls = feature_opt_ls[:np.argmax(metric_opt_ls) + 1]
         self.log(f'最终评价结果: {max(metric_opt_ls)}, 特征组合{feature_opt_ls}')
         return feature_opt_ls
@@ -517,7 +531,8 @@ class AutoFeature(object):
 
 if __name__ == '__main__':
     # 功能测试
-    af = AutoFeature(fit_type='classification', fit_metric='roc_auc')
+    # af = AutoFeature(fit_type='classification', fit_metric='roc_auc')
+    af = AutoFeature(fit_type='regression', fit_metric='r2')
     # af = AutoFeature()
     df = pd.read_csv(r'E:\02code\01_EasyPlot\sample.csv')
     feature_num = ['feature_3', 'feature_15', 'feature_26', 'feature_11',
@@ -527,13 +542,11 @@ if __name__ == '__main__':
        'feature_213', 'feature_191', 'feature_230', 'feature_250',
        'feature_297', 'feature_299', 'feature_90', 'feature_8', 'feature_188',
        'feature_343', 'feature_352', 'feature_25']
-    feature_clf = ['feature_347', 'feature_298','feature_294']
+    feature_clf = ['feature_347', 'feature_298', 'feature_294']
     label_name = 'price'
-    df['price'] = pd.qcut(df['price'], q=2, labels=[x for x in range(2)])
+    # df['price'] = pd.qcut(df['price'], q=2, labels=[x for x in range(2)])
     df_filter, col_num, col_clf = af.filtering(df, feature_num, feature_clf, label_name)
     # 嵌套过滤
     feature_top = af.nesting(df_filter, col_num + col_clf, label_name)
     # 包裹过滤
-    feature_opt_ls = af.wrapping(df, list(feature_top.keys()), 'price', base_model='lgb')
-
-    # TODO 给分类问题增加逻辑回归
+    feature_opt_ls = af.wrapping(df, list(feature_top.keys()), 'price', base_model='cart')
