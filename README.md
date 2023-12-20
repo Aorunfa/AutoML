@@ -1,5 +1,12 @@
 
-# AutoFeature自动特征筛选算法介绍
+# 自动化机器学习项目介绍
+&emsp;&emsp;该项目主要面向结构化数据使用通用的机器学习模型进行有监督学习的场景，主要目的是快速进行特征挖掘，特征建模并保存建模结果。为此，项目主要开发了三个模块:
+1. 模块AutoPlot主要针对特征探索过程的可视化，快速完成相关特征的可视化分析，特征工程
+2. 模块AutoFeature主要针对冗余特征过滤，快速完成关键特征组的确定
+3. 模块AutoModel主要针对建模及集成寻优，快速完成模型选型与集成方式选择  
+**以下将简单介绍每个模块的使用方式和一下关键代码。**
+-----
+# 算法1：AutoFeature自动特征筛选算法介绍
 ## 一.介绍
 &emsp;&emsp;该自动特征筛选算法适用于结构化数据的监督学习场景，对构建的大量特征进行自动过滤，保留与标签较为相关的特征组合， 
 减小特征冗余，帮助开发人员快速确定重要特征组，提高建模的效率和效果。  
@@ -242,8 +249,191 @@ def _metric_fun(self, y_true, y_pred):
     return val
 ```
 
+----
 
-# Easyplot绘图类介绍
+# 算法2：AutoModel自动化建模算法介绍
+## 一.介绍
+&emsp;&emsp;该自动建模算法只适用于结构化数据的监督学习场景，对给定的特征组，快速训练多个不同的基模型，并基于基模型
+的结果，自动寻找最优的集成路径，实现快进行模型选型、集成方法选择，提高建模效率。
+该算法主要包括三个：
+1. 基本模型超参搜索与训练  
+2. 基本模型结果最优集成路径搜索  
+3. 模型预测与保存
+
+## 二.使用方式
+###2.1 数据准备
+&emsp;&emsp;在运行算法前，需要对原始数据完成数据清洗、数据转换、特征工程、特征过滤，得到最终的关键特征组。  
+&emsp;&emsp;与AutoFeature相同，目前算法能够处理回归问题以及二分类问题的自动建模，暂不支持对多分类问题的自动化处理。以下展示sample.csv数据集里的基本数据情况。
+    **数据展示：特征列，标签列，数据类型
+###2.2 运行内置方法
+1.根据问题指定必要的参数，必须要指定的是*fit_type*参数，若是回归问题则传入*regression*，分类问题则传入*classification*。
+其余参数含义参考注释，默认值可以满足大多数使用场景。根据sample.csv数据可以进行该实例化
+`automodel = AutoModel(fit_type='classification', fit_metric='rec_pre')`表示场景为分类问题，评价指标选择racall与precision的复合指标
+```python
+    def __init__(self, fit_type='regression', fit_metric=None, k_cv=4, metric_filter=0.8,
+                 params_searcher='grid', log_path='auto_model.log'):
+        super(AutoModel, self).__init__()
+        self.fit_type = fit_type                # 问题是回归还是分类问题
+        self.fit_metric = fit_metric            # 模型多折验证评价指标
+        self.k_cv = k_cv                        # 进行几折交叉验证
+        self.metric_filter = metric_filter      # 过滤评价指标低于该值的基模型
+        self.params_searcher = params_searcher  # 超参搜索器 grid or random or bayes
+        self.stack_model = {}
+        if self.fit_type not in ['regression', 'classification']:
+            raise ValueError(f'错误的值{self.fit_type}, fit_type取值为regression或classification')
+        if self.params_searcher not in ['grid', 'random', 'bayes']:
+            raise ValueError(f"错误的值{self.params_searcher}, params_searcher取值为['grid', 'random', 'bayes']")
+        # 日志模块
+        self.log = Logger(path=log_path)
+        self.log('--' * 10 + f'自动化建模日志 建模类型{self.fit_type}' + '--' * 10)
+```
+
+2.进行特征拟合，调用实例automodel.best_fit(**params)方法即可。
+入参为数据集dataframe，数值特征列名list，分类特征列list，以及标签列名str。  
+模型超参寻优、训练评价指标等相关信息将保存在log_path中，控制台打印日志展示如下。
+![自动建模日志](pict/自动建模日志.png "自动建模日志")  
+```python
+def best_fit(self, df: pd.DataFrame, feture_ls: list, label_name: str, models=None):
+    """
+    训练基模型，并寻找最优集成路径
+    :param df: 数据集
+    :param feture_ls: 使用的特征列名 
+    :param label_name: 标签名称
+    :param models: 制定的基模型，默认None，采用所有预设基模型
+    :return: 最优模型
+    """
+```
+
+3.进行结果预测，调用实例automodel.predict(**params)方法。
+输入参数为特征数据，可以是dataframe格式或者是numpy array格式，将返回模型的最终预测结果，若存在最优集成路径，则返回多个模型的最优集成结果。
+```python
+ def predict(self, X_feature: pd.DataFrame or np.array):
+        """
+        结果预测
+        :param X_feature:特征数据 
+        :return: 
+        """
+```
+
+4.运行automodel.save_model(file_path)保存训练好的最优模型，并通过load_model(model_path)进行模型加载。
+path默认为None，将保存至或加载来自`./auto_model`的模型文件。包括最优模型，或最优集成路径的基模型、相关权重、新的集成模型等。
+```python
+# 保存
+automodel.save_model(path=None)
+# 载入预测
+automodel.load_model(path=None)
+yp = automodel.predict(df[feature])
+```
+
+## 三.附录：模型集成方法说明
+### 3.1 voting
+&emsp;&emsp;基模型包括单个基础模型以及boost、bagging相关的集成学习模型，对于这些模型的结果，设计了软硬投票的方式进行集成。
+软投票主要根据基模型在测试集上的评价指标进行平方归一化作为权值，或设置权值全为1，对基模型的结果进行加权。硬投票主要针对分类问题，
+按照少数服从多数原则取基模型结果中出现最多的标签最为最终预测结果。
+```python
+def _voting(self, mat_rslt: np.array, soft=True, weight=None):
+    """
+    适用分类的概率结果或回归的数值结果加权
+    """
+    if soft:
+        if weight is None:
+            result = np.mean(mat_rslt, axis=1)
+        else:
+            if isinstance(weight, dict):
+                w = np.array(list(weight.values()))
+            else:
+                w = weight
+            w = w * w
+            w = w / sum(w)  # 归一化
+            result = np.sum(mat_rslt * w, axis=1)
+        if self.fit_type == 'classification':
+            # 0-1分割概率阈值0.5
+            result[np.where(result < 0.5)] = 0
+            result[np.where(result >= 0.5)] = 1
+    else:
+        # 硬投票适用于分类问题
+        thre = np.floor(mat_rslt.shape[1] / 2)
+        result = np.sum(mat_rslt, axis=1) - thre
+        result[np.where(result <= 0)] = 0
+        result[np.where(result > 0)] = 1
+    return result
+```
+
+### 3.2 stacking
+&emsp;&emsp;stacking这种集成方式需要以基模型的预测结果作为特征重新训练新的分类或回归模型，为了降低过拟合风险，
+算法预设了结构尽可能简单的模型，如回归采用lasso或浅层cart树(<=3层)，分类采用logit或浅层cart树。
+```python
+def _stacking(self, mat_train: np.array, y_train, mat_test: np.array, base_mode=None):
+    """
+    satacking基模型不能太复杂
+    回归选择cart lasso
+    分类选择logist cart
+    """
+    if base_mode is None:
+        if self.fit_type == 'regression':
+            base_mode = 'lasso'
+        else:
+            base_mode = 'logit'
+    self._set_models()
+    self._set_params()
+    if base_mode == 'cart':
+        # 树模型要求要简单
+        self.search_params[base_mode] = {'max_depth': [1, 2, 3]}
+    score_fun = metrics.make_scorer(self._metric_fun)  # make_score封装
+    model = self.search_models[base_mode]
+    # 寻找最优参数
+    seacher = self._set_seacher(model(), self.search_params[base_mode],
+                                scoring_fun=score_fun,
+                                cv=self._k_split(mat_train, y_train))
+    seacher.fit(mat_train, y_train)
+    if base_mode == 'cart':
+        self.stack_model['stack_cart'] = seacher  # 用于预测阶段
+    else:
+        self.stack_model['stack'] = seacher
+    return seacher.predict(mat_test)
+```
+
+### 3.3 集成路径选择
+&emsp;&emsp;对于集成路径的选择，主要比较在验证集上效果最好的集成方法指标和最好的基模型指标，
+若`最好集成方法评价指标 > 最好基模型评价指标`则得到有效的集成方法与基模型一起作为最优模型总成，否则最优模型为效果最好的基模型。
+```python
+def best_ensemble(self, mat_train: np.array or dict, mat_test: np.array or dict):
+    """
+    进行最优最优集成选型
+    """
+    self.log(f'训练集基模型效果{self.train_matric}')
+    self._set_ensemble_method()
+    if isinstance(mat_train, dict):
+        mat_train = np.array(list(mat_train.values())).T  # shape = (n_samples, n_models)
+        mat_test = np.array(list(mat_test.values())).T
+    ensemble_metric = {}
+    for k, ensemble in self.ensembler[self.fit_type].items():
+        if k not in ['stack', 'stack_cart']:
+            m = self._metric_fun(self.y_test, ensemble(mat_test))
+        else:
+            m = self._metric_fun(self.y_test, ensemble(mat_train, self.y_train, mat_test))
+        ensemble_metric[k] = m
+        self.log(f'集成方法{k}测试集效果={m}')
+    # 对比训练集筛选最好的集成方法
+    k_e, m_test_e = max(ensemble_metric.items(), key=lambda x: x[1])
+    # k_train, m_train = max(self.train_matric.items(), key=lambda x: x[1])
+    k_test, m_test = max(self.test_matric.items(), key=lambda x: x[1])
+    # 更新集成函数字典
+    for sk in ['stack', 'stack_cart']:
+        self.ensembler[self.fit_type][sk] = partial(self._model_pred,
+                                                    model=self.stack_model[sk])
+    self.log(f'最优集成方法验证集效果={m_test_e}, 单模型验证集最好效果={m_test}')
+    if m_test_e > m_test:
+        # 集成路径有效
+        self.log(f'集成路径{k_e}最优, 验证集评估指标={m_test_e}')
+        return 1, k_e, self.ensembler[self.fit_type][k_e]
+    else:
+        self.log(f'所有集成路径无效, 最优模型为{k_test}, 模型评估指标={m_test}')
+        return 0, k_test, partial(self._model_pred, model=self.models_fit[k_test])
+```
+---
+
+# 开发3：Autoplot绘图类介绍 待完成
 ## 一.介绍
     
 ## 二.使用及实例
@@ -254,18 +444,3 @@ def _metric_fun(self, y_true, y_pred):
     快速画图命令：
 
 ###2.2 单个数值变量分布...
-
-
-# RiskQuantify风险量化算法介绍
-## 一.介绍
-    开发目的、解决的问题
-    简单法方案
-    效果
-## 二.使用方式
-###2.1 数据准备
-
-###2.2 初始化参数
-    参数含义及作用：
-    示例：
-
-###2.3 方法调用

@@ -23,6 +23,7 @@ from scipy.stats import chi2_contingency, fisher_exact
 import warnings
 warnings.filterwarnings('ignore')
 
+
 class Logger(object):
     def __init__(self, path=None, log_name='log', mode='a'):
         if path is None:
@@ -60,7 +61,6 @@ class Logger(object):
 
 """
 TODO 超参字典自定义，确定关键参数范围即可
-TODO 固定相关随机种子
 """
 class SetupBase(object):
     """
@@ -105,22 +105,25 @@ class SetupBase(object):
         初始化各个模型超参空间字典
         """
         random_seed = 2023  # TODO设置随机种子
-        cart_params = {'max_depth': [x for x in range(2, 15, 2)]}  # TODO 增加新的参数空间
+        cart_params = {'max_depth': [x for x in range(2, 15, 2)]}
         xgb_params = {'max_depth': [x for x in range(2, 11, 2)],
                       'n_estimators': [25, 50, 75, 100],
                       'learning_rate': [5e-1, 1e-1, 5e-2],
+                      'seed': [random_seed],
                       'importance_type': ['gain']}
         lgb_params = {'objective': ['regression'],
                       'max_depth': [x for x in range(2, 11, 2)],
                       'n_estimators': [30, 60, 100],
                       'learning_rate': [5e-1, 1e-1, 5e-2],
+                      'random_state': [random_seed],
                       'verbosity': [-1],  # 隐藏警告信息
                       'importance_type': ['gain']}
         cab_params = {'max_depth': [x for x in range(2, 11, 2)],
                       'iterations': [25, 50, 75, 100],
                       'learning_rate': [5e-1, 1e-1, 5e-2],
+                      'random_state': [random_seed],
                       'verbose': [False]}
-        lasso_params = {'alpha': list([0.1 * x for x in range(1, 21)])}
+        lasso_params = {'alpha': list([0.1 * x for x in range(1, 101, 5)])}
         logit_params = {'penalty': ['l1'],
                         'solver': ['saga'],
                         'C': list([0.1 * x for x in range(1, 101, 5)])}
@@ -203,7 +206,7 @@ class AutoFeature(SetupBase):
     """
     def __init__(self, corrval_withlabel=0.35, corrval_withothers=0.85, p_val=0.05,
                  fit_type='regression', fit_metric=None, k_cv=4, top_n=50,
-                 group_n=-1, params_searcher='grid', log_path='auto_events.log'):
+                 group_n=-1, params_searcher='grid', log_path='auto_feature.log'):
         super(AutoFeature, self).__init__()
         # 日志模块
         self.log = Logger(path=log_path)
@@ -531,8 +534,8 @@ class AutoFeature(SetupBase):
 
 if __name__ == '__main__':
     # 功能测试
-    # af = AutoFeature(fit_type='classification', fit_metric='roc_auc')
-    af = AutoFeature(fit_type='regression', fit_metric='r2')
+    af = AutoFeature(fit_type='classification', fit_metric='rec_pre')
+    # af = AutoFeature(fit_type='regression', fit_metric='r2')
     # af = AutoFeature()
     df = pd.read_csv(r'E:\02code\01_EasyPlot\sample.csv')
     feature_num = ['feature_3', 'feature_15', 'feature_26', 'feature_11',
@@ -544,7 +547,7 @@ if __name__ == '__main__':
        'feature_343', 'feature_352', 'feature_25']
     feature_clf = ['feature_347', 'feature_298', 'feature_294']
     label_name = 'price'
-    # df['price'] = pd.qcut(df['price'], q=2, labels=[x for x in range(2)])
+    df['price'] = pd.qcut(df['price'], q=2, labels=[x for x in range(2)])
     df_filter, col_num, col_clf = af.filtering(df, feature_num, feature_clf, label_name)
     # 嵌套过滤
     feature_top = af.nesting(df_filter, col_num + col_clf, label_name)
