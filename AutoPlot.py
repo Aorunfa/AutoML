@@ -15,10 +15,10 @@ mpl.rcParams['axes.unicode_minus']=False
 from scipy import stats
 import matplotlib.pyplot as plt
 colors = plt.cm.viridis(np.linspace(0, 1, 10))
-sns.set_theme()
+# sns.set_theme()
 
 
-class EasyPlot(object):
+class AutoPlot(object):
     """
     功能:集成的绘图类，包含多场景的绘图方法；
     单变量与单变量组合绘图:
@@ -47,7 +47,7 @@ class EasyPlot(object):
         if color_map is None:
             self.color_map = ['red', 'blue', 'cyan', 'olive', 'green', 'gray',
                          'purple', 'brown', 'black', 'pink', 'orange']
-            self.color_map = plt.cm.viridis(np.linspace(0, 1, 10))
+            # self.color_map = plt.cm.viridis(np.linspace(0, 1, 10))
         else:
             self.color_map = color_map
 
@@ -65,7 +65,7 @@ class EasyPlot(object):
         :param fig: None or 画布
         :return:
         """
-        if not fig:
+        if fig is not None:
             fig.savefig(self.path.format(title, type, self.format),
                         format=self.format, dpi=self.dpi)
         else:
@@ -136,6 +136,28 @@ class EasyPlot(object):
                                       clr=self.color_map[i],
                                       label_name=str(cat))
 
+        if ax_box:
+            """
+            绘制连续变量 - 连续变量/分类变量箱线
+            """
+            sns.boxplot(data=df,
+                        x=seq_name,
+                        y=num_name,
+                        order=order_sort,
+                        linewidth=1,
+                        ax=ax_box)
+            ax_box.set_title(f'{num_name}-{seq_name} boxplot')
+
+        if ax_vln:
+            sns.violinplot(data=df,
+                           x=seq_name,
+                           y=num_name,
+                           order=order_sort,
+                           scale='width',
+                           linewidth=1,
+                           ax=ax_vln)
+            ax_vln.set_title(f'{num_name}-{seq_name} violinplot')
+
         if ax_sca:
             """
             绘制两个连续变量的散点图
@@ -158,28 +180,6 @@ class EasyPlot(object):
                          ax=ax_line,
                          linewidth=2)
             ax_line.set_title(f'{num_name}-{seq_name} lineplot')
-
-        if ax_box:
-            """
-            绘制连续变量 - 连续变量/分类变量箱线
-            """
-            sns.boxplot(data=df,
-                        x=seq_name,
-                        y=num_name,
-                        order=order_sort,
-                        linewidth=1,
-                        ax=ax_box)
-            ax_box.set_title(f'{num_name}-{seq_name} boxplot')
-
-        if ax_vln:
-            sns.violinplot(data=df,
-                           x=seq_name,
-                           y=num_name,
-                           order=order_sort,
-                           scale='width',
-                           linewidth=1,
-                           ax=ax_vln)
-            ax_vln.set_title(f'{num_name}-{seq_name} violinplot')
 
         self._save_fig(fig, num_name+'_'+seq_name, 'sequence_dist')
 
@@ -291,7 +291,7 @@ class EasyPlot(object):
         self._save_fig(fig, num_name0 + '_' + num_name1, '2d_dist')
 
     def qq_plot(self, data0, data1, label0, label1, quantile_num=50,
-                ax_cuml=None, ax_qq=None, ax_qq_ref=None, ax_qq_standar=None,
+                ax_cuml=None, ax_qq=None, ax_qq_ref=None,
                 fig=None):
         """
         绘制两组数据的累计分布图，qq图
@@ -376,33 +376,66 @@ class EasyPlot(object):
             ax_qq_ref.set_title(title, fontdict={'size':20}, loc='left')
             ax_qq_ref.set_xlabel(f'{label0} quantile', fontdict={'size': 20})
             ax_qq_ref.set_ylabel(f'{label1} quantile', fontdict={'size': 20})
+        self._save_fig(fig, label0 + '_' + label1, 'qq_plot')
+
+
+    def qq_plot_standar(self, data, label, ax_qq_standar, standar_dist='chi2', **parms):
+        """
+        绘制给定数据与标准分布的qq图
+        :param data: 给定数据
+        :param label: 数据显示标签
+        :param ax_qq_standar: 子图
+        :param standar_dist: 标准分布类型
+        :param parms: 标准分布相关参数
+        :return:
+        """
+        def cuml_prob_plot(data, axe=None, clr=None, label=None):
+            """
+            绘制一组数据的累积密度，并返回累积密度数组
+            """
+            y_vals = np.arange(len(data)) / float(len(data))  # 计算累积密度
+            if axe:
+                sns.lineplot(x=np.sort(data),
+                             y=y_vals,
+                             ax=axe,
+                             color=clr,
+                             label=label)
+            return y_vals
+
         if ax_qq_standar:
             """
             绘制qq图，x轴为标准分布的相同分位数值
             """
-            datal_y = cuml_prob_plot(data1, axe=None, clr=self.color_map[1],
-                                    label=label1)
+            datal_y = cuml_prob_plot(data)
             # 对目标累计分布函数值求已知分布的累计分布函数的逆；
             # 可求f，chi2，t等，默认已知分布为标准正态分布
-            x_label = stats.norm.ppf(datal_y, loc=0, scale=1)
-            # x_label = stats.chi2.ppf(datal_y, df=4) # 绘制卡方分布
-            # x_label = stats.t.ppf(datal_y, df=4) # t分布
-            # x_label = stats.f，ppf(datal_y, dfn=4, dfd=5) # f分布
+            if standar_dist == 'norm':
+                x_label = stats.norm.ppf(datal_y, **parms)
+                # x_label = stats.norm.ppf(datal_y, loc=0, scale=1)
+            elif standar_dist == 'chi2':
+                x_label = stats.chi2.ppf(datal_y, **parms)  # 绘制卡方分布
+                # x_label = stats.chi2.ppf(datal_y, df=4) # 绘制卡方分布
+            elif standar_dist == 't':
+                x_label = stats.t.ppf(datal_y, **parms)  # t分布
+                # x_label = stats.t.ppf(datal_y, df=4) # t分布
+            elif standar_dist == 'f':
+                x_label = stats.f.ppf(datal_y, **parms)  # f分布
+                # x_label = stats.f，ppf(datal_y, dfn=4, dfd=5) # f分布
+            else:
+                raise ValueError(f'当前内置分布[norm, chi2, t, f]，请自定义相关分布{standar_dist}')
             sns.lineplot(x=x_label,
                          y=x_label,
                          color=self.color_map[0],
-                         label=label0+'line',
+                         label=standar_dist+'line',
                          ax=ax_qq_standar)
             sns.scatterplot(x=x_label,
-                            y=np.sort(data1),
+                            y=np.sort(data),
                             color=self.color_map[1],
                             alpha=0.5,
-                            label=label1,
+                            label=label,
                             ax=ax_qq_standar)
-            ax_qq_standar.set_title(f'{label0} and {label1} q-q plot')
-            ax_qq_standar.set_xlabel('standard quantile value')
-
-        self._save_fig(fig, label0 + '_' + label1, 'qq_plot')
+            ax_qq_standar.set_title(f'{standar_dist} and {label} q-q plot')
+            ax_qq_standar.set_xlabel(f'{standar_dist} quantile value')
 
     def cat_dist_plot(self, df, cat_name, axe, pct=0.8,
                         x_tick_rotation=45, x_tick_fontsize=15, sort_val=True, fig=None):
@@ -476,7 +509,7 @@ class EasyPlot(object):
                 """
                 数量归一化处理
                 """
-                num_tol = df_tmpt.groupby('Location').agg({'count': sum}).to_dict()['count']
+                num_tol = df_tmpt.groupby(cat_name1).agg({'count': sum}).to_dict()['count']
                 df_tmpt.loc[:, 'count'] = df_tmpt['count'] / df_tmpt[cat_name1].map(num_tol)
             if auto_vehival and df_tmpt[cat_name1].nunique() >= 10:
                 """
@@ -518,12 +551,14 @@ class EasyPlot(object):
 
         self._save_fig(fig, cat_name0 + '_' + cat_name1, 'cross_plot')
 
-    # 根据天池大数据整理
+    """
+    以下根据天池大数据整理
+    """
     def violine_cat_dist(self, df, cat_name, num_name_ls, axe, fig=None):
         """
         绘制小提琴图 小提琴的每个半边为不同的类别的分布
         :param df: 特征数据 dataframe
-        :param cat_name: 分类特征 str
+        :param cat_name: 分类特征 , 必须是二分类 str
         :param num_name_ls: 数值特征列表 list
         :param axe:
         :return:

@@ -534,8 +534,8 @@ class AutoFeature(SetupBase):
 
 if __name__ == '__main__':
     # 功能测试
-    af = AutoFeature(fit_type='classification', fit_metric='rec_pre')
-    # af = AutoFeature(fit_type='regression', fit_metric='r2')
+    # af = AutoFeature(fit_type='classification', fit_metric='rec_pre')
+    af = AutoFeature(fit_type='regression', fit_metric='r2')
     # af = AutoFeature()
     df = pd.read_csv(r'E:\02code\01_EasyPlot\sample.csv')
     feature_num = ['feature_3', 'feature_15', 'feature_26', 'feature_11',
@@ -547,7 +547,7 @@ if __name__ == '__main__':
        'feature_343', 'feature_352', 'feature_25']
     feature_clf = ['feature_347', 'feature_298', 'feature_294']
     label_name = 'price'
-    df['price'] = pd.qcut(df['price'], q=2, labels=[x for x in range(2)])
+    # df['price'] = pd.qcut(df['price'], q=2, labels=[x for x in range(2)])
     df_filter, col_num, col_clf = af.filtering(df, feature_num, feature_clf, label_name)
     # 嵌套过滤
     feature_top = af.nesting(df_filter, col_num + col_clf, label_name)
