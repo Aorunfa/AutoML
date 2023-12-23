@@ -27,48 +27,12 @@ import os
 import json
 import warnings
 warnings.filterwarnings('ignore')
+from logger import Logger
 
-# TODO 增加新的集成模型
-
-class Logger(object):
-    def __init__(self, path=None, log_name='log', mode='a'):
-        if path is None:
-            self.log_path = 'action_log.log'
-        else:
-            self.log_path = path
-        self.mode = mode
-        self.log_name = log_name
-        self.logger = logging.getLogger(self.log_name)
-        self.set_up()
-
-    def set_up(self):
-        """
-        日志设置初始化
-        :return:
-        """
-        self.logger.setLevel(logging.INFO)
-        file_handler = logging.FileHandler(filename=self.log_path,
-                                           encoding='utf-8',
-                                           mode=self.mode)
-        stream_handler = logging.StreamHandler()
-        formatter = logging.Formatter(fmt='%(asctime)s : %(message)s',
-                                      datefmt='%Y-%m-%d %H:%M:%S')
-        # 文件保存
-        file_handler.setFormatter(fmt=formatter)
-        file_handler.setLevel(level=logging.INFO)
-        # 工作台打印
-        stream_handler.setFormatter(fmt=formatter)
-        stream_handler.setLevel(level=logging.INFO)
-        self.logger.addHandler(file_handler)
-        self.logger.addHandler(stream_handler)
-
-    def __call__(self, log_info: str):
-        self.logger.info(log_info)
-
-
+# TODO 增加新的集成模型 增加PCA降维技术
 class SetupBase(object):
     """
-    初始化设置模型、评价指标、超参数搜索器
+    初始化基模型、参数空间、评价指标、超参数搜索器
     """
     def __init__(self):
         self.fit_type = 'regression'
@@ -99,72 +63,109 @@ class SetupBase(object):
         adb_clf = AdaBoostClassifier
         rdf_reg = RandomForestRegressor
         rdf_clf = RandomForestClassifier
-
         reg_model = dict(zip(reg_keys,
                              [lasso, ridge, svm_reg, cart_reg, xgb_reg,
                               lgb_reg, cab_reg, adb_reg, rdf_reg]))
         clf_model = dict(zip(clf_keys,
                              [logit, svm_clf, cart_clf, xgb_clf, lgb_clf,
                               cab_clf, adb_clf, rdf_clf]))
-
-
-        if self.fit_type == 'regression':
-            self.search_models = reg_model
-        elif self.fit_type == 'classification':
-            self.search_models = clf_model
-        else:
-            raise ValueError(f'错误值{self.fit_type}, fit_type取值为regression或classification')
+        self.search_models = reg_model if self.fit_type == 'regression' else clf_model
 
     def _set_params(self):
         """
-        初始化各个模型超参空间字典
+        根据不同的问题，初始化各个模型超参空间字典
+        TODO 持续更新分类或回归参数空间
         """
-        # TODO 增加新的参数空间
-        random_seed = 2023  # TODO设置随机种子
-        cart_params = {'max_depth': [x for x in range(2, 15, 2)]}
-        xgb_params = {'max_depth': [x for x in range(2, 9, 2)],
-                      'n_estimators': [25, 50, 75, 100],
-                      'learning_rate': [5e-1, 1e-1, 5e-2],
-                      'seed': [random_seed],
-                      'importance_type': ['gain']}
-        lgb_params = {'objective': ['regression'],
-                      'max_depth': [x for x in range(2, 9, 2)],
-                      'n_estimators': [30, 60, 100],
-                      'learning_rate': [5e-1, 1e-1, 5e-2],
-                      'random_state': [random_seed],
-                      'verbosity': [-1],  # 隐藏警告信息
-                      'importance_type': ['gain']}
-        cab_params = {'max_depth': [x for x in range(2, 9, 2)],
-                      'iterations': [25, 50, 75, 100],
-                      'learning_rate': [5e-1, 1e-1, 5e-2],
-                      'random_state': [random_seed],
-                      'verbose': [False]}
-        lasso_params = {'alpha': list([0.1 * x for x in range(1, 101)])}
-        logit_params = {'penalty': ['l1'],
-                        'solver': ['saga'],
-                        'C': list([0.1 * x for x in range(1, 101, 5)])}
-        ridge_params = {'alpha': list([0.1 * x for x in range(1, 101)])}
-        svm_params = {'kernel': ['linear', 'poly', 'rbf', 'sigmoid'],
-                      'C': [1, 10, 100, 1000, 5000, 10000]}
-        adb_params = {'n_estimators': [25, 50, 75, 100],
-                      'learning_rate': [1, 5e-1, 1e-1, 5e-2],
-                      'random_state': [random_seed]}
-        rdf_params = {'n_estimators': [20, 40, 60, 80],
-                      'max_depth': [x for x in range(2, 9, 2)],
-                      'random_state': [random_seed]}
+        random_seed = 2023
+        if self.fit_type == 'regression':
+            cart_params = {'max_depth': [x for x in range(2, 15, 2)]}
+            xgb_params = {'max_depth': [x for x in range(2, 9, 2)],
+                          'n_estimators': [25, 50, 75, 100],
+                          'learning_rate': [5e-1, 1e-1, 5e-2],
+                          'seed': [random_seed],
+                          'importance_type': ['gain']}
+            lgb_params = {'objective': ['regression', 'regression_l1'],
+                          'boost': ['gbdt', 'dart'],
+                          'max_depth': [x for x in range(2, 9, 2)],
+                          'num_leaves': [21, 31],
+                          'min_data_in_leaf': [25, 50],
+                          'bagging_fraction': [0.8, 1],
+                          'n_estimators': [50, 100, 150],
+                          'early_stopping_round': [70],
+                          'learning_rate': [5e-1, 1e-1, 5e-2],
+                          'random_state': [random_seed],
+                          'verbosity': [-1],  # 隐藏警告信息
+                          'importance_type': ['gain']}
+            cab_params = {'max_depth': [x for x in range(2, 9, 2)],
+                          'iterations': [25, 50, 75, 100],
+                          'learning_rate': [5e-1, 1e-1, 5e-2],
+                          'random_state': [random_seed],
+                          'verbose': [False]}
+            lasso_params = {'alpha': list([0.1 * x for x in range(1, 101)])}
+            ridge_params = {'alpha': list([0.1 * x for x in range(1, 101)])}
+            svm_params = {'kernel': ['linear', 'poly', 'rbf', 'sigmoid'],
+                          'C': [1, 10, 100, 1000, 5000, 10000]}
+            adb_params = {'n_estimators': [25, 50, 75, 100],
+                          'learning_rate': [1, 5e-1, 1e-1, 5e-2],
+                          'random_state': [random_seed]}
+            rdf_params = {'n_estimators': [20, 40, 60, 80],
+                          'max_depth': [x for x in range(2, 9, 2)],
+                          'random_state': [random_seed]}
+            self.search_params = {'lasso': lasso_params,
+                                  'ridge': ridge_params,
+                                  'svm': svm_params,
+                                  'cart': cart_params,
+                                  'xgb': xgb_params,
+                                  'lgb': lgb_params,
+                                  'cab': cab_params,
+                                  'adb': adb_params,
+                                  'rdf': rdf_params
+                                  }
+        else:
+            cart_params = {'max_depth': [x for x in range(2, 15, 2)]}
+            xgb_params = {'max_depth': [x for x in range(2, 9, 2)],
+                          'n_estimators': [25, 50, 75, 100],
+                          'learning_rate': [5e-1, 1e-1, 5e-2],
+                          'seed': [random_seed],
+                          'importance_type': ['gain']}
 
-        self.search_params = {'lasso': lasso_params,
-                              'ridge': ridge_params,
-                              'logit': logit_params,
-                              'svm': svm_params,
-                              'cart': cart_params,
-                              'xgb': xgb_params,
-                              'lgb': lgb_params,
-                              'cab': cab_params,
-                              'adb': adb_params,
-                              'rdf': rdf_params
-                              }
-
+            lgb_params = {'objective': ['binary', 'cross_entropy'],
+                          'boost': ['gbdt', 'dart'],
+                          'max_depth': [x for x in range(2, 9, 2)],
+                          'num_leaves': [21, 31],
+                          'min_data_in_leaf': [25, 50],
+                          'bagging_fraction': [0.8, 1],
+                          'n_estimators': [50, 100, 150],
+                          'early_stopping_round': [70],
+                          'learning_rate': [5e-1, 1e-1, 5e-2],
+                          'random_state': [random_seed],
+                          'verbosity': [-1],  # 隐藏警告信息
+                          'importance_type': ['gain']}
+            cab_params = {'max_depth': [x for x in range(2, 9, 2)],
+                          'iterations': [25, 50, 75, 100],
+                          'learning_rate': [5e-1, 1e-1, 5e-2],
+                          'random_state': [random_seed],
+                          'verbose': [False]}
+            logit_params = {'penalty': ['l1'],
+                            'solver': ['saga'],
+                            'C': list([0.1 * x for x in range(1, 101, 5)])}
+            svm_params = {'kernel': ['linear', 'poly', 'rbf', 'sigmoid'],
+                          'C': [1, 10, 100, 1000, 5000, 10000]}
+            adb_params = {'n_estimators': [25, 50, 75, 100],
+                          'learning_rate': [1, 5e-1, 1e-1, 5e-2],
+                          'random_state': [random_seed]}
+            rdf_params = {'n_estimators': [20, 40, 60, 80],
+                          'max_depth': [x for x in range(2, 9, 2)],
+                          'random_state': [random_seed]}
+            self.search_params = {'logit': logit_params,
+                                  'svm': svm_params,
+                                  'cart': cart_params,
+                                  'xgb': xgb_params,
+                                  'lgb': lgb_params,
+                                  'cab': cab_params,
+                                  'adb': adb_params,
+                                  'rdf': rdf_params
+                                  }
 
     @staticmethod
     def metric_rec_pre(y_true, y_pred):
@@ -185,7 +186,7 @@ class SetupBase(object):
                'rec_pre': self.metric_rec_pre,
                'f1': metrics.f1_score,
                'roc_auc': metrics.roc_auc_score}
-        self.search_metrics = {'regression': reg, 'classification': clf}
+        self.search_metrics = reg if self.fit_type == 'regression' else clf
 
     def _metric_fun(self, y_true, y_pred):
         """
@@ -201,8 +202,7 @@ class SetupBase(object):
         else:
             if self.fit_metric is None:
                 self.fit_metric = 'auc'  # 分类问题默认是准确率
-        val = self.search_metrics[self.fit_type][self.fit_metric](y_true, y_pred)
-        return val
+        return self.search_metrics[self.fit_metric](y_true, y_pred)
 
     def _set_seacher(self, model, param_dist: dict, scoring_fun, cv=None):
         """
@@ -251,9 +251,11 @@ class AutoModel(SetupBase):
             raise ValueError(f'错误的值{self.fit_type}, fit_type取值为regression或classification')
         if self.params_searcher not in ['grid', 'random', 'bayes']:
             raise ValueError(f"错误的值{self.params_searcher}, params_searcher取值为['grid', 'random', 'bayes']")
+
         # 日志模块
         self.log = Logger(path=log_path)
         self.log('--' * 10 + f'自动化建模日志 建模类型{self.fit_type}' + '--' * 10)
+
     def _k_split(self, X_train, y_train):
         """
         将数据集按照标签分布拆分为k折
@@ -287,7 +289,6 @@ class AutoModel(SetupBase):
         self.X_test = scaler.transform(X_test)
         self.y_train, self.y_test = y_train, y_test
 
-    # TODO 增加评价指标阈值筛选条件
     def best_fit(self, df: pd.DataFrame, feture_ls: list, label_name: str, models=None):
         """
         训练基模型，并寻找最优集成路径
@@ -302,9 +303,8 @@ class AutoModel(SetupBase):
         self._set_params()
         self._split_train_test(df, feture_ls, label_name)
         score_fun = metrics.make_scorer(self._metric_fun)   # make_score封装
-
+        # 自定义基模型
         if models is not None:
-            # 自定义基模型
             self.search_models = dict([item for item in self.search_models.items()
                                        if item[0] in models])
         # 多折寻找最优超参模型
@@ -355,7 +355,7 @@ class AutoModel(SetupBase):
             mat_train = np.array(list(mat_train.values())).T  # shape = (n_samples, n_models)
             mat_test = np.array(list(mat_test.values())).T
         ensemble_metric = {}
-        for k, ensemble in self.ensembler[self.fit_type].items():
+        for k, ensemble in self.ensembler.items():
             if k not in ['stack', 'stack_cart']:
                 m = self._metric_fun(self.y_test, ensemble(mat_test))
             else:
@@ -368,13 +368,13 @@ class AutoModel(SetupBase):
         k_test, m_test = max(self.test_matric.items(), key=lambda x: x[1])
         # 更新集成函数字典
         for sk in ['stack', 'stack_cart']:
-            self.ensembler[self.fit_type][sk] = partial(self._model_pred,
+            self.ensembler[sk] = partial(self._model_pred,
                                                         model=self.stack_model[sk])
         self.log(f'最优集成方法验证集效果={m_test_e}, 单模型验证集最好效果={m_test}')
         if m_test_e > m_test:
             # 集成路径有效
             self.log(f'集成路径{k_e}最优, 验证集评估指标={m_test_e}')
-            return 1, k_e, self.ensembler[self.fit_type][k_e]
+            return 1, k_e, self.ensembler[k_e]
         else:
             self.log(f'所有集成路径无效, 最优模型为{k_test}, 模型评估指标={m_test}')
             return 0, k_test, partial(self._model_pred, model=self.models_fit[k_test])
@@ -410,16 +410,18 @@ class AutoModel(SetupBase):
         """
         初始化集成方法
         """
-        self.ensembler = {'regression': {'softw': partial(self._voting, weight=self.test_matric),
-                                         'soft': self._voting,
-                                         'stack': self._stacking,
-                                         'stack_cart': partial(self._stacking, base_mode='cart')},
-                          'classification': {'softw': partial(self._voting, weight=self.test_matric),
-                                             'soft': self._voting,
-                                             'hard': partial(self._voting, soft=False),
-                                             'stack': self._stacking,
-                                             'stack_cart': partial(self._stacking, base_mode='cart')},
-                          }
+        if self.fit_type == 'regression':
+            self.ensembler = {'softw': partial(self._voting, weight=self.test_matric),
+                              'soft': self._voting,
+                              'stack': self._stacking,
+                              'stack_cart': partial(self._stacking, base_mode='cart')}
+
+        else:
+            self.ensembler = {'softw': partial(self._voting, weight=self.test_matric),
+                              'soft': self._voting,
+                              'hard': partial(self._voting, soft=False),
+                              'stack': self._stacking,
+                              'stack_cart': partial(self._stacking, base_mode='cart')}
 
     def _voting(self, mat_rslt: np.array, soft=True, weight=None):
         """
@@ -522,9 +524,9 @@ class AutoModel(SetupBase):
             self._set_ensemble_method()
             if k_ensemble in ['stack', 'stack_cart']:
                 model_stack = self.models_fit.pop(k_ensemble)
-                self.ensembler[self.fit_type][k_ensemble] = partial(self._model_pred,
+                self.ensembler[k_ensemble] = partial(self._model_pred,
                                                                     model=model_stack)
-            self.best_model = 1, k_ensemble, self.ensembler[self.fit_type][k_ensemble]
+            self.best_model = 1, k_ensemble, self.ensembler[k_ensemble]
 
 # TODO 增加评价阈值过滤
 if __name__ == '__main__':
@@ -538,11 +540,11 @@ if __name__ == '__main__':
     #                'feature_12', 'feature_23', 'feature_7', 'feature_8']  # clf
     label_name = 'price'
     # # df['price'] = pd.qcut(df['price'], q=2, labels=[x for x in range(2)])
-    # automodel.best_fit(df, feature, label_name)
-    # y_pred = automodel.predict(df[feature])
+    automodel.best_fit(df, feature, label_name)
+    y_pred = automodel.predict(df[feature])
     automodel.save_model(path=None)
 
-    # 载入预测: 测试样例：单个模型无集成策略 TODO 测试加权集成 stack集成
+    # 载入预测: 已测试单个模型无集成策略 TODO 待测试加权集成 stack集成
     automodel.load_model(path=None)
     yp = automodel.predict(df[feature])
     print(yp)

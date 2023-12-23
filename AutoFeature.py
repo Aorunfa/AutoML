@@ -22,49 +22,11 @@ from skopt import BayesSearchCV
 from scipy.stats import chi2_contingency, fisher_exact
 import warnings
 warnings.filterwarnings('ignore')
+from logger import Logger
 
-
-class Logger(object):
-    def __init__(self, path=None, log_name='log', mode='a'):
-        if path is None:
-            self.log_path = 'action_log.log'
-        else:
-            self.log_path = path
-        self.mode = mode
-        self.log_name = log_name
-        self.logger = logging.getLogger(self.log_name)
-        self.set_up()
-
-    def set_up(self):
-        """
-        日志设置初始化
-        :return:
-        """
-        self.logger.setLevel(logging.INFO)
-        file_handler = logging.FileHandler(filename=self.log_path,
-                                           encoding='utf-8',
-                                           mode=self.mode)
-        stream_handler = logging.StreamHandler()
-        formatter = logging.Formatter(fmt='%(asctime)s : %(message)s',
-                                      datefmt='%Y-%m-%d %H:%M:%S')
-        # 文件保存
-        file_handler.setFormatter(fmt=formatter)
-        file_handler.setLevel(level=logging.INFO)
-        # 工作台打印
-        stream_handler.setFormatter(fmt=formatter)
-        stream_handler.setLevel(level=logging.INFO)
-        self.logger.addHandler(file_handler)
-        self.logger.addHandler(stream_handler)
-
-    def __call__(self, log_info: str):
-        self.logger.info(log_info)
-
-"""
-TODO 超参字典自定义，确定关键参数范围即可
-"""
 class SetupBase(object):
     """
-    初始化设置模型、评价指标、超参数搜索器
+    初始化基模型、超参空间、评价指标、超参数搜索器
     """
     def __init__(self):
         self.fit_type = 'regression'
@@ -77,7 +39,7 @@ class SetupBase(object):
         :return:分类问题与回归问题的模型字典
         """
         reg_keys = ['lasso', 'cart', 'xgb', 'lgb', 'cab']
-        clf_keys = ['logit'] + reg_keys[1:]
+        clf_keys = ['logit', 'cart', 'xgb', 'lgb', 'cab']
         lasso = Lasso
         logit = LogisticRegression
         cart_reg = DecisionTreeRegressor
@@ -93,47 +55,74 @@ class SetupBase(object):
                              [lasso, cart_reg, xgb_reg, lgb_reg, cab_reg]))
         clf_model = dict(zip(clf_keys,
                              [logit, cart_clf, xgb_clf, lgb_clf, cab_clf]))
-        if self.fit_type == 'regression':
-            self.search_models = reg_model
-        elif self.fit_type == 'classification':
-            self.search_models = clf_model
-        else:
-            raise ValueError(f'错误的值{self.fit_type}, fit_type取值为regression或classification')
+        self.search_models = reg_model if self.fit_type == 'regression' else clf_model
 
     def _set_params(self):
         """
         初始化各个模型超参空间字典
         """
-        random_seed = 2023  # TODO设置随机种子
-        cart_params = {'max_depth': [x for x in range(2, 15, 2)]}
-        xgb_params = {'max_depth': [x for x in range(2, 11, 2)],
-                      'n_estimators': [25, 50, 75, 100],
-                      'learning_rate': [5e-1, 1e-1, 5e-2],
-                      'seed': [random_seed],
-                      'importance_type': ['gain']}
-        lgb_params = {'objective': ['regression'],
-                      'max_depth': [x for x in range(2, 11, 2)],
-                      'n_estimators': [30, 60, 100],
-                      'learning_rate': [5e-1, 1e-1, 5e-2],
-                      'random_state': [random_seed],
-                      'verbosity': [-1],  # 隐藏警告信息
-                      'importance_type': ['gain']}
-        cab_params = {'max_depth': [x for x in range(2, 11, 2)],
-                      'iterations': [25, 50, 75, 100],
-                      'learning_rate': [5e-1, 1e-1, 5e-2],
-                      'random_state': [random_seed],
-                      'verbose': [False]}
-        lasso_params = {'alpha': list([0.1 * x for x in range(1, 101, 5)])}
-        logit_params = {'penalty': ['l1'],
-                        'solver': ['saga'],
-                        'C': list([0.1 * x for x in range(1, 101, 5)])}
-        self.search_params = {'lasso': lasso_params,
-                              'logit': logit_params,
-                              'cart': cart_params,
-                              'xgb': xgb_params,
-                              'lgb': lgb_params,
-                              'cab': cab_params
-                              }
+        random_seed = 2023
+        if self.fit_type == 'regression':
+            # 自定义回归问题参数空间
+            cart_params = {'max_depth': [x for x in range(2, 15, 2)]}
+            xgb_params = {'max_depth': [x for x in range(2, 11, 2)],
+                          'n_estimators': [25, 50, 75, 100],
+                          'learning_rate': [5e-1, 1e-1, 5e-2],
+                          'seed': [random_seed],
+                          'importance_type': ['gain']}
+            lgb_params = {'objective': ['regression'],
+                          'max_depth': [x for x in range(2, 11, 2)],
+                          'n_estimators': [30, 60, 100],
+                          'learning_rate': [5e-1, 1e-1, 5e-2],
+                          'random_state': [random_seed],
+                          'verbosity': [-1],  # 隐藏警告信息
+                          'importance_type': ['gain']}
+            cab_params = {'max_depth': [x for x in range(2, 11, 2)],
+                          'iterations': [25, 50, 75, 100],
+                          'learning_rate': [5e-1, 1e-1, 5e-2],
+                          'random_state': [random_seed],
+                          'verbose': [False]}
+            lasso_params = {'alpha': list([0.1 * x for x in range(1, 101, 5)])}
+            logit_params = {'penalty': ['l1'],
+                            'solver': ['saga'],
+                            'C': list([0.1 * x for x in range(1, 101, 5)])}
+            self.search_params = {'lasso': lasso_params,
+                                  'logit': logit_params,
+                                  'cart': cart_params,
+                                  'xgb': xgb_params,
+                                  'lgb': lgb_params,
+                                  'cab': cab_params
+                                  }
+        else:
+            cart_params = {'max_depth': [x for x in range(2, 15, 2)]}
+            xgb_params = {'max_depth': [x for x in range(2, 11, 2)],
+                          'n_estimators': [25, 50, 75, 100],
+                          'learning_rate': [5e-1, 1e-1, 5e-2],
+                          'seed': [random_seed],
+                          'importance_type': ['gain']}
+            lgb_params = {'objective': ['classification'],
+                          'max_depth': [x for x in range(2, 11, 2)],
+                          'n_estimators': [30, 60, 100],
+                          'learning_rate': [5e-1, 1e-1, 5e-2],
+                          'random_state': [random_seed],
+                          'verbosity': [-1],  # 隐藏警告信息
+                          'importance_type': ['gain']}
+            cab_params = {'max_depth': [x for x in range(2, 11, 2)],
+                          'iterations': [25, 50, 75, 100],
+                          'learning_rate': [5e-1, 1e-1, 5e-2],
+                          'random_state': [random_seed],
+                          'verbose': [False]}
+            lasso_params = {'alpha': list([0.1 * x for x in range(1, 101, 5)])}
+            logit_params = {'penalty': ['l1'],
+                            'solver': ['saga'],
+                            'C': list([0.1 * x for x in range(1, 101, 5)])}
+            self.search_params = {'lasso': lasso_params,
+                                  'logit': logit_params,
+                                  'cart': cart_params,
+                                  'xgb': xgb_params,
+                                  'lgb': lgb_params,
+                                  'cab': cab_params
+                                  }
 
     @staticmethod
     def metric_rec_pre(y_true, y_pred):
@@ -152,7 +141,7 @@ class SetupBase(object):
                'rec_pre': self.metric_rec_pre,
                'f1': metrics.f1_score,
                'roc_auc': metrics.roc_auc_score}
-        self.search_metrics = {'regression': reg, 'classification': clf}
+        self.search_metrics = reg if self.fit_type == 'regression' else clf
 
     def _metric_fun(self, y_true, y_pred):
         """
@@ -168,8 +157,7 @@ class SetupBase(object):
         else:
             if self.fit_metric is None:
                 self.fit_metric = 'auc'  # 分类问题默认是准确率
-        val = self.search_metrics[self.fit_type][self.fit_metric](y_true, y_pred)
-        return val
+        return self.search_metrics[self.fit_metric](y_true, y_pred)
 
     def _set_seacher(self, model, param_dist: dict, scoring_fun, cv=None):
         """
