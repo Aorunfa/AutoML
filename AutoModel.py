@@ -240,7 +240,7 @@ class SetupBase(object):
 
 class AutoModel(SetupBase):
     """
-    风险量化模型
+    自动建模算法
     方案：训练多个模型，对多模型结果进行集成，用于分类、回归问题
     """
     def __init__(self, fit_type='regression', fit_metric=None, k_cv=4, metric_filter=0.8,
