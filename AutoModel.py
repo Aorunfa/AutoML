@@ -78,20 +78,22 @@ class SetupBase(object):
         """
         random_seed = 2023
         if self.fit_type == 'regression':
-            cart_params = {'max_depth': [x for x in range(2, 15, 2)]}
+            cart_params = {'max_depth': [x for x in range(2, 15, 2)],
+                           'criterion': ['mse', 'friedman_mse', 'mae'],
+                           'min_samples_split': [6, 11, 21, 31]}
             xgb_params = {'max_depth': [x for x in range(2, 9, 2)],
                           'n_estimators': [25, 50, 75, 100],
                           'learning_rate': [5e-1, 1e-1, 5e-2],
                           'seed': [random_seed],
                           'importance_type': ['gain']}
             lgb_params = {'objective': ['regression', 'regression_l1'],
-                          'boost': ['gbdt', 'dart'],
+                          'boost': ['gbdt', 'dart'], # dart
                           'max_depth': [x for x in range(2, 9, 2)],
                           'num_leaves': [21, 31],
                           'min_data_in_leaf': [25, 50],
                           'bagging_fraction': [0.8, 1],
                           'n_estimators': [50, 100, 150],
-                          'early_stopping_round': [70],
+                          # 'early_stopping_round': [70],
                           'learning_rate': [5e-1, 1e-1, 5e-2],
                           'random_state': [random_seed],
                           'verbosity': [-1],  # 隐藏警告信息
@@ -122,18 +124,21 @@ class SetupBase(object):
                                   'rdf': rdf_params
                                   }
         else:
-            cart_params = {'max_depth': [x for x in range(2, 15, 2)]}
+            cart_params = {'max_depth': [x for x in range(2, 15, 2)],
+                           'criterion': ['gini', 'entropy'],
+                           'min_samples_split': [11, 21, 31]}
             xgb_params = {'max_depth': [x for x in range(2, 9, 2)],
+                          'min_child_weight': [21, 31, 50],
                           'n_estimators': [25, 50, 75, 100],
                           'learning_rate': [5e-1, 1e-1, 5e-2],
                           'seed': [random_seed],
                           'importance_type': ['gain']}
 
-            lgb_params = {'objective': ['binary', 'cross_entropy'],
-                          'boost': ['gbdt', 'dart'],
+            lgb_params = {'objective': ['binary'],
+                          'boost': ['dart'],  # 'gbdt'
                           'max_depth': [x for x in range(2, 9, 2)],
                           'num_leaves': [21, 31],
-                          'min_data_in_leaf': [25, 50],
+                          'min_child_weight': [21, 31, 50],
                           'bagging_fraction': [0.8, 1],
                           'n_estimators': [50, 100, 150],
                           'early_stopping_round': [70],
@@ -473,11 +478,13 @@ class AutoModel(SetupBase):
                                     scoring_fun=score_fun,
                                     cv=self._k_split(mat_train, y_train))
         seacher.fit(mat_train, y_train)
+        model = model(**seacher.best_params_)
+        model.fit(mat_train, y_train)
         if base_mode == 'cart':
-            self.stack_model['stack_cart'] = seacher  # 用于预测阶段
+            self.stack_model['stack_cart'] = model  # 用于预测阶段
         else:
-            self.stack_model['stack'] = seacher
-        return seacher.predict(mat_test)
+            self.stack_model['stack'] = model
+        return model.predict(mat_test)
 
     def save_model(self, path=None):
         """
@@ -531,20 +538,20 @@ class AutoModel(SetupBase):
 # TODO 增加评价阈值过滤
 if __name__ == '__main__':
     # 功能测试
-    automodel = AutoModel(fit_type='regression', fit_metric='r2')
-    # # automodel = AutoModel(fit_type='classification', fit_metric='rec_pre')
+    # automodel = AutoModel(fit_type='regression', fit_metric='r2')
+    automodel = AutoModel(fit_type='classification', fit_metric='rec_pre')
     df = pd.read_csv(r'E:\02code\01_EasyPlot\sample.csv')
-    feature = ['feature_3', 'feature_15', 'feature_8', 'feature_270', 'feature_25', 'feature_188',
-               'feature_281', 'feature_250', 'feature_294', 'feature_299'] # reg
-    # feature = ['feature_18', 'feature_3', 'feature_25', 'feature_294',
-    #                'feature_12', 'feature_23', 'feature_7', 'feature_8']  # clf
+    # feature = ['feature_3', 'feature_15', 'feature_8', 'feature_270', 'feature_25', 'feature_188',
+    #            'feature_281', 'feature_250', 'feature_294', 'feature_299'] # reg
+    feature = ['feature_18', 'feature_3', 'feature_25', 'feature_294',
+                   'feature_12', 'feature_23', 'feature_7', 'feature_8']  # clf
     label_name = 'price'
-    # # df['price'] = pd.qcut(df['price'], q=2, labels=[x for x in range(2)])
+    df['price'] = pd.qcut(df['price'], q=2, labels=[x for x in range(2)])
     automodel.best_fit(df, feature, label_name)
     y_pred = automodel.predict(df[feature])
     automodel.save_model(path=None)
 
-    # 载入预测: 已测试单个模型无集成策略 TODO 待测试加权集成 stack集成
+    # 载入预测: 已测试单个模型无集成策略 stack集成 TODO 待测试加权集成
     automodel.load_model(path=None)
     yp = automodel.predict(df[feature])
     print(yp)
