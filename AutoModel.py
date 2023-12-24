@@ -28,8 +28,12 @@ import json
 import warnings
 warnings.filterwarnings('ignore')
 from logger import Logger
+from sklearn.decomposition import PCA
 
-# TODO 增加新的集成模型 增加PCA降维技术
+# TODO 增加新的集成模型
+# TODO 增加PCA降维技术 done
+
+
 class SetupBase(object):
     """
     初始化基模型、参数空间、评价指标、超参数搜索器
@@ -244,13 +248,15 @@ class AutoModel(SetupBase):
     方案：训练多个模型，对多模型结果进行集成，用于分类、回归问题
     """
     def __init__(self, fit_type='regression', fit_metric=None, k_cv=4, metric_filter=0.8,
-                 params_searcher='grid', log_path='auto_model.log'):
+                 params_searcher='grid', run_pca=True, pca_ratio=0.88, log_path='auto_model.log'):
         super(AutoModel, self).__init__()
         self.fit_type = fit_type                # 问题是回归还是分类问题
         self.fit_metric = fit_metric            # 模型多折验证评价指标
         self.k_cv = k_cv                        # 进行几折交叉验证
         self.metric_filter = metric_filter      # 过滤评价指标低于该值的基模型
         self.params_searcher = params_searcher  # 超参搜索器 grid or random or bayes
+        self.run_pca = run_pca
+        self.pca_ratio = pca_ratio
         self.stack_model = {}
         if self.fit_type not in ['regression', 'classification']:
             raise ValueError(f'错误的值{self.fit_type}, fit_type取值为regression或classification')
@@ -260,6 +266,23 @@ class AutoModel(SetupBase):
         # 日志模块
         self.log = Logger(path=log_path)
         self.log('--' * 10 + f'自动化建模日志 建模类型{self.fit_type}' + '--' * 10)
+
+    def _pca_trans(self, X_data: pd.DataFrame or np.array, ratio=0.88):
+        """
+        对样本特征进行PCA降维，保留给定比例的主成分信息ratio
+        :param X_data: 样本特征空间
+        :param ratio: 保留多大比例的信息
+        :return: 降维后结果
+        """
+        n = min(X_data.shape[0], X_data.shape[1])
+        pca = PCA(n_components=n)
+        pca.fit(X_data)
+        X_new = pca.transform(X_data)
+        # 筛选ratio解释力的主成分
+        cols_need = np.where(np.cumsum(pca.explained_variance_ratio_) <= ratio)
+        cols_need = list(cols_need[0])  # tuple()[0]
+        X_new = X_new[:, cols_need + [cols_need[-1] + 1]]
+        return pd.DataFrame(X_new, columns=[f'pca_{x}' for x in range(X_new.shape[1])])
 
     def _k_split(self, X_train, y_train):
         """
@@ -285,9 +308,17 @@ class AutoModel(SetupBase):
         """
         划分训练集合测试集
         """
+        if self.run_pca:
+            X_data = self._pca_trans(df[feture_ls], self.pca_ratio)
+            self.log(f'执行PCA降维处理，原始特征数量{len(feture_ls)}，保留特征数量{X_data.shape[1]}，保留主成分信息比例{self.pca_ratio}')
+        else:
+            X_data = self.df[feture_ls]  # TODO不再复制一份
         # 划分测试集验证集
-        X_train, X_test, y_train, y_test = train_test_split(df[feture_ls], df[label_name],
-                                                            test_size=0.2, random_state=42)
+        # X_train, X_test, y_train, y_test = train_test_split(df[feture_ls], df[label_name],
+        #                                                     test_size=0.2, random_state=42)
+        X_train, X_test, y_train, y_test = train_test_split(X_data, df[label_name],
+                                                            test_size=0.2, random_state=2023)
+
         # 标准化
         scaler = StandardScaler()
         self.X_train = scaler.fit_transform(X_train)
