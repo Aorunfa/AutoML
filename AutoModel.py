@@ -32,7 +32,7 @@ from sklearn.decomposition import PCA
 
 # TODO 增加新的集成模型
 # TODO 增加PCA降维技术 done
-
+# TODO 增加PCA模型保存、增加归一化模型保存，用于预测阶段的数据预处理
 
 class SetupBase(object):
     """
@@ -248,15 +248,14 @@ class AutoModel(SetupBase):
     方案：训练多个模型，对多模型结果进行集成，用于分类、回归问题
     """
     def __init__(self, fit_type='regression', fit_metric=None, k_cv=4, metric_filter=0.8,
-                 params_searcher='grid', run_pca=True, pca_ratio=0.88, log_path='auto_model.log'):
+                 params_searcher='grid', pca_ratio=0.88, log_path='auto_model.log'):
         super(AutoModel, self).__init__()
         self.fit_type = fit_type                # 问题是回归还是分类问题
         self.fit_metric = fit_metric            # 模型多折验证评价指标
         self.k_cv = k_cv                        # 进行几折交叉验证
         self.metric_filter = metric_filter      # 过滤评价指标低于该值的基模型
         self.params_searcher = params_searcher  # 超参搜索器 grid or random or bayes
-        self.run_pca = run_pca
-        self.pca_ratio = pca_ratio
+        self.pca_ratio = pca_ratio              # pca降维保留主成分信息比例，None表示不进行pca降维
         self.stack_model = {}
         if self.fit_type not in ['regression', 'classification']:
             raise ValueError(f'错误的值{self.fit_type}, fit_type取值为regression或classification')
@@ -308,11 +307,11 @@ class AutoModel(SetupBase):
         """
         划分训练集合测试集
         """
-        if self.run_pca:
+        if self.pca_ratio is not None:
             X_data = self._pca_trans(df[feture_ls], self.pca_ratio)
             self.log(f'执行PCA降维处理，原始特征数量{len(feture_ls)}，保留特征数量{X_data.shape[1]}，保留主成分信息比例{self.pca_ratio}')
         else:
-            X_data = self.df[feture_ls]  # TODO不再复制一份
+            X_data = df[feture_ls]  # TODO不再复制一份
         # 划分测试集验证集
         # X_train, X_test, y_train, y_test = train_test_split(df[feture_ls], df[label_name],
         #                                                     test_size=0.2, random_state=42)
